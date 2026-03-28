@@ -15,43 +15,87 @@
  */
 
 import { endGroup, startGroup } from "@actions/core";
-import { GitHub } from "@actions/github";
+import type { GitHub } from "@actions/github/lib/utils";
 import { Context } from "@actions/github/lib/context";
+import { ChannelSuccessResult, interpretChannelDeployResult } from "./deploy";
+import { createDeploySignature } from "./hash";
 
-// create a PR comment, or update one if it already exists
-export async function postOrUpdateComment(
-  github: GitHub | undefined,
+const BOT_SIGNATURE =
+  '<sub>🔥 via [Firebase Hosting GitHub Action](https://github.com/marketplace/actions/deploy-to-firebase-hosting) 🌎</sub>';
+
+export function createBotCommentIdentifier(signature: string) {
+  return function isCommentByBot(comment): boolean {
+    return comment.user.type === "Bot" && comment.body.includes(signature);
+  };
+}
+
+export function getURLsMarkdownFromChannelDeployResult(
+  result: ChannelSuccessResult,
+  commentURLPath?: string
+): string {
+  const { urls } = interpretChannelDeployResult(result);
+  const suffix = commentURLPath || "";
+
+  return urls.length === 1
+    ? `[${urls[0]}](${urls[0]}${suffix})`
+    : urls.map((url) => `- [${url}](${url}${suffix})`).join("\n");
+}
+
+export function getChannelDeploySuccessComment(
+  result: ChannelSuccessResult,
+  commit: string,
+  commentURLPath?: string
+) {
+  const deploySignature = createDeploySignature(result);
+  const urlList = getURLsMarkdownFromChannelDeployResult(result, commentURLPath);
+  const { expire_time_formatted } = interpretChannelDeployResult(result);
+
+  return `
+Visit the preview URL for this PR (updated for commit ${commit}):
+
+${urlList}
+
+<sub>(expires ${expire_time_formatted})</sub>
+
+${BOT_SIGNATURE}
+
+<sub>Sign: ${deploySignature}</sub>`.trim();
+}
+
+export async function postChannelSuccessComment(
+  github: InstanceType<typeof GitHub>,
   context: Context,
   issueNumber: number,
-  commentMarkdown: string
+  result: ChannelSuccessResult,
+  commit: string,
+  commentURLPath?: string
 ) {
-  if (!github) {
-    console.log("GitHub object not available. Skipping PR comment.");
-    return;
-  }
-
   const commentInfo = {
     ...context.repo,
     issue_number: issueNumber,
   };
 
+  const commentMarkdown = getChannelDeploySuccessComment(
+    result,
+    commit,
+    commentURLPath
+  );
+
   const comment = {
     ...commentInfo,
-    body:
-      commentMarkdown +
-      "\n\n<sub>🔥 via [Firebase Hosting GitHub Action](https://github.com/siku2/action-hosting-deploy) 🌎</sub>",
+    body: commentMarkdown,
   };
 
-  startGroup(`Updating PR comment`);
+  startGroup(`Commenting on PR`);
+  const deploySignature = createDeploySignature(result);
+  const isCommentByBot = createBotCommentIdentifier(deploySignature);
+
   let commentId;
   try {
-    const comments = (await github.issues.listComments(commentInfo)).data;
+    const comments = (await github.rest.issues.listComments(commentInfo)).data;
     for (let i = comments.length; i--; ) {
       const c = comments[i];
-      if (
-        c.user.type === "Bot" &&
-        /<sub>[\s\n]*🔥 via \[Firebase Hosting GitHub Action/.test(c.body)
-      ) {
+      if (isCommentByBot(c)) {
         commentId = c.id;
         break;
       }
@@ -62,7 +106,7 @@ export async function postOrUpdateComment(
 
   if (commentId) {
     try {
-      await github.issues.updateComment({
+      await github.rest.issues.updateComment({
         ...context.repo,
         comment_id: commentId,
         body: comment.body,
@@ -74,7 +118,7 @@ export async function postOrUpdateComment(
 
   if (!commentId) {
     try {
-      await github.issues.createComment(comment);
+      await github.rest.issues.createComment(comment);
     } catch (e) {
       console.log(`Error creating comment: ${e.message}`);
     }

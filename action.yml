@@ -12,58 +12,74 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Deploy to Firebase Hosting
-description: A GitHub Action to deploy to Firebase Hosting
-author: Jason Miller (https://github.com/developit) and Firebase
+name: "Deploy to Firebase Hosting"
+description: "A GitHub Action to deploy to Firebase Hosting"
+author: "Jason Miller (https://github.com/developit) and Firebase"
 branding:
-  icon: globe
-  color: blue
+  icon: "globe"
+  color: "blue"
 runs:
-  using: node12
+  using: "node20"
   main: "bin/action.min.js"
 inputs:
   repoToken:
-    description: The GITHUB_TOKEN secret
+    description: "The GITHUB_TOKEN secret"
+    required: false
   firebaseServiceAccount:
-    description: Firebase service account JSON
+    description: "Firebase service account JSON"
+    required: false
   firebaseToken:
-    description: Firebase token
-
+    description: "Firebase token"
+    required: false
   expires:
-    description: How long should a preview live? See the preview channels docs for options
-    default: 7d
+    description: "How long should a preview live? See the preview channels docs for options"
+    default: "7d"
+    required: false
   commentURLPath:
-    description: Custom path to add to the deploy URL in the comment.
-
+    description: "Custom path to add to the deploy URL in the comment."
+    required: false
   projectId:
-    description: >
-      The project to deploy to. If you leave this blank, make sure you check in
-      a .firebaserc file
+    description: "The project to deploy to. If you leave this blank, make sure you check in a .firebaserc file"
+    required: false
   channelId:
-    description: >
-      The preview channel id to deploy to. If you leave this blank, a channel
-      id will be auto-generated per branch or PR
+    description: "The ID of the channel to deploy to. If you leave this blank, a preview channel and its ID will be auto-generated per branch or PR."
+    required: false
   targets:
-    description: Comma-separated list of targets to deploy to
-
+    description: "Comma-separated list of targets to deploy to"
+    required: false
   entryPoint:
-    description: >
-      The location of your firebase.json file, relative to the root of your
-      directory
+    description: "The location of your firebase.json file, relative to the root of your directory"
     default: "."
-
-  # these are only required if you're running outside of the pull_request target.
+    required: false
+  firebaseToolsVersion:
+    description: >-
+      The version of firebase-tools to use. Defaults to `latest`.
+    default: latest
+    required: false
+  disableComment:
+    description: >-
+      Disable auto-commenting with the preview channel URL to the pull request
+    default: "false"
+    required: false
+  force:
+    description: "Pass 'true' to use the --force flag with firebase deploy. This will automatically accept any warning or prompts during deploy. Use with caution."
+    default: "false"
+    required: false
   prNumber:
-    description: PR number
+    description: "PR number"
+    required: false
   prBranchName:
-    description: PR branch name
+    description: "PR branch name"
+    required: false
   commitSHA:
-    description: Commit SHA of the commit that triggered this
-
+    description: "Commit SHA of the commit that triggered this"
+    required: false
 outputs:
   urls:
     description: The url(s) deployed to
   expire_time:
     description: The time the deployed preview urls expire
+  expire_time_formatted:
+    description: The time the deployed preview urls expire in the UTC format
   details_url:
     description: A single URL that was deployed to

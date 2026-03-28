@@ -13,25 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { Context } from "@actions/github/lib/context";
+import type { GitHub } from "@actions/github/lib/utils";
 
-import { GitHub } from "@actions/github";
-import { Context } from "@actions/github/lib/context";
-
-// create a check and return a function that updates (completes) it
 export async function createCheck(
-  github: GitHub,
+  github: InstanceType<typeof GitHub>,
   context: Context,
-  commitSHA: string
+  commitSHA?: string
 ) {
-  const check = await github.checks.create({
+  const check = await github.rest.checks.create({
     ...context.repo,
     name: "Deploy Preview",
-    head_sha: commitSHA,
+    head_sha: commitSHA || context.payload.pull_request?.head.sha,
     status: "in_progress",
   });
 
   return async (details: Object) => {
-    await github.checks.update({
+    await github.rest.checks.update({
       ...context.repo,
       check_run_id: check.data.id,
       completed_at: new Date().toISOString(),

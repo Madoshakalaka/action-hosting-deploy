@@ -28,7 +28,7 @@ jobs:
   build_and_preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       # Add any build steps here. For example:
       # - run: npm ci && npm run build
       - uses: FirebaseExtended/action-hosting-deploy@v0
@@ -37,8 +37,6 @@ jobs:
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
           expires: 30d
           projectId: your-Firebase-project-ID
-        env:
-          FIREBASE_CLI_PREVIEWS: hostingchannels
 ```
 
 ### Deploy to your live channel on merge
@@ -51,23 +49,21 @@ name: Deploy to Live Channel
 on:
   push:
     branches:
-      - master
+      - main
     # Optionally configure to run only for specific files. For example:
     # paths:
     # - "website/**"
 
 jobs:
-  build_and_preview:
+  deploy_live:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       # Add any build steps here. For example:
       # - run: npm ci && npm run build
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
-          expires: 30d
           projectId: your-Firebase-project-ID
           channelId: live
 ```
@@ -99,6 +95,18 @@ this secret yourself - GitHub sets it automatically.
 If you omit this option, you'll need to find the preview URL in the action's
 build log.
 
+### `firebaseToolsVersion` _{string}_
+
+The version of firebase-tools to use. Defaults to `latest`.
+
+### `disableComment` _{string}_
+
+Set to `"true"` to disable auto-commenting with the preview channel URL on the pull request.
+
+### `force` _{string}_
+
+Set to `"true"` to use the `--force` flag with firebase deploy.
+
 ## Outputs
 
 Values emitted by this action that can be consumed by other actions later in your workflow
@@ -110,6 +118,10 @@ The url(s) deployed to
 ### `expire_time`
 
 The time the deployed preview urls expire
+
+### `expire_time_formatted`
+
+The time the deployed preview urls expire in UTC format
 
 ### `details_url`
 

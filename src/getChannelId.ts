@@ -14,9 +14,12 @@
  * limitations under the License.
  */
 
+import { Context } from "@actions/github/lib/context";
+
 export function getChannelId(
-  configuredChannelId?: string,
-  prContext?: { prNumber: number; branchName: String }
+  configuredChannelId: string,
+  ghContext: Context,
+  prContext?: { prNumber: number; branchName: string }
 ) {
   let tmpChannelId: string = "";
 
@@ -25,9 +28,11 @@ export function getChannelId(
   } else if (prContext) {
     const branchName = prContext.branchName.substr(0, 20);
     tmpChannelId = `pr${prContext.prNumber}-${branchName}`;
+  } else if (ghContext.payload.pull_request) {
+    const branchName = ghContext.payload.pull_request.head.ref.substr(0, 20);
+    tmpChannelId = `pr${ghContext.payload.pull_request.number}-${branchName}`;
   }
 
-  // Channel IDs can only include letters, numbers, underscores, hyphens, and periods.
   const invalidCharactersRegex = /[^a-zA-Z0-9_\-\.]/g;
   const correctedChannelId = tmpChannelId.replace(invalidCharactersRegex, "_");
   if (correctedChannelId !== tmpChannelId) {

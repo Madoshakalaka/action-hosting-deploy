@@ -18,7 +18,7 @@ import { exec } from "@actions/exec";
 
 export type SiteDeploy = {
   site: string;
-  target: string | undefined;
+  target?: string;
   url: string;
   expireTime: string;
 };
@@ -36,7 +36,7 @@ export type ChannelSuccessResult = {
 export type ProductionSuccessResult = {
   status: "success";
   result: {
-    hosting: string;
+    hosting: string | string[];
   };
 };
 
@@ -52,35 +52,60 @@ function authToEnv(auth: DeployAuth): { [key: string]: string } {
   } else if (auth.firebaseToken) {
     env["FIREBASE_TOKEN"] = auth.firebaseToken;
   }
-
   return env;
 }
 
-export type DeployConfig = {
-  auth: DeployAuth;
+type DeployConfig = {
   projectId: string;
-  expires: string;
-  channelId: string;
   targets: string[];
+  firebaseToolsVersion?: string;
+  force?: boolean;
 };
 
+export type ChannelDeployConfig = DeployConfig & {
+  expires: string;
+  channelId: string;
+};
+
+export type ProductionDeployConfig = DeployConfig;
+
+export function interpretChannelDeployResult(
+  deployResult: ChannelSuccessResult
+): { expireTime: string; expire_time_formatted: string; urls: string[] } {
+  const allSiteResults = Object.values(deployResult.result);
+
+  const expireTime = allSiteResults[0].expireTime;
+  const expire_time_formatted = new Date(expireTime).toUTCString();
+  const urls = allSiteResults.map((siteResult) => siteResult.url);
+
+  return {
+    expireTime,
+    expire_time_formatted,
+    urls,
+  };
+}
+
 async function execWithCredentials(
-  firebase,
   args: string[],
-  projectId,
+  projectId: string,
   auth: DeployAuth,
-  debug: boolean = false
+  opts: { debug?: boolean; firebaseToolsVersion?: string; force?: boolean }
 ) {
   let deployOutputBuf: Buffer[] = [];
+  const debug = opts.debug || false;
+  const firebaseToolsVersion = opts.firebaseToolsVersion || "latest";
+  const force = opts.force;
+
   try {
     await exec(
-      firebase,
+      `npx firebase-tools@${firebaseToolsVersion}`,
       [
         ...args,
         ...(projectId ? ["--project", projectId] : []),
+        ...(force ? ["--force"] : []),
         debug
-          ? "--debug" // gives a more thorough error message
-          : "--json", // allows us to easily parse the output
+          ? "--debug"
+          : "--json",
       ],
       {
         listeners: {
@@ -99,11 +124,15 @@ async function execWithCredentials(
     console.log(Buffer.concat(deployOutputBuf).toString("utf-8"));
     console.log(e.message);
 
-    if (debug === false) {
+    if (!debug) {
       console.log(
         "Retrying deploy with the --debug flag for better error output"
       );
-      return execWithCredentials(firebase, args, projectId, auth, true);
+      await execWithCredentials(args, projectId, auth, {
+        debug: true,
+        firebaseToolsVersion,
+        force,
+      });
     } else {
       throw e;
     }
@@ -111,14 +140,17 @@ async function execWithCredentials(
 
   return deployOutputBuf.length
     ? deployOutputBuf[deployOutputBuf.length - 1].toString("utf-8")
-    : ""; // output from the CLI
+    : "";
 }
 
-export async function deploy(deployConfig: DeployConfig) {
-  const { auth, projectId, expires, channelId, targets } = deployConfig;
+export async function deploy(
+  auth: DeployAuth,
+  deployConfig: ChannelDeployConfig
+) {
+  const { projectId, channelId, targets, expires, firebaseToolsVersion, force } =
+    deployConfig;
 
   const deploymentText = await execWithCredentials(
-    "npx firebase-tools",
     [
       "hosting:channel:deploy",
       ...(targets.length > 0 ? ["--only", targets.join(",")] : []),
@@ -126,10 +158,11 @@ export async function deploy(deployConfig: DeployConfig) {
       ...(expires ? ["--expires", expires] : []),
     ],
     projectId,
-    auth
+    auth,
+    { firebaseToolsVersion, force }
   );
 
-  const deploymentResult = JSON.parse(deploymentText) as
+  const deploymentResult = JSON.parse(deploymentText.trim()) as
     | ChannelSuccessResult
     | ErrorResult;
 
@@ -138,9 +171,11 @@ export async function deploy(deployConfig: DeployConfig) {
 
 export async function deployProductionSite(
   auth: DeployAuth,
-  projectId: string,
-  targets: string[]
+  productionDeployConfig: ProductionDeployConfig
 ) {
+  const { projectId, targets, firebaseToolsVersion, force } =
+    productionDeployConfig;
+
   let targetArg: string;
   if (targets.length > 0) {
     targetArg = targets.map((target) => `hosting:${target}`).join(",");
@@ -149,10 +184,10 @@ export async function deployProductionSite(
   }
 
   const deploymentText = await execWithCredentials(
-    "npx firebase-tools",
     ["deploy", "--only", targetArg],
     projectId,
-    auth
+    auth,
+    { firebaseToolsVersion, force }
   );
 
   const deploymentResult = JSON.parse(deploymentText) as

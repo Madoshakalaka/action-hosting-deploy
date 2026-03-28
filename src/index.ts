@@ -21,7 +21,7 @@ import {
   setOutput,
   startGroup,
 } from "@actions/core";
-import { context, GitHub } from "@actions/github";
+import { context, getOctokit } from "@actions/github";
 import { existsSync } from "fs";
 import { createCheck } from "./createCheck";
 import { createGacFile } from "./createGACFile";
@@ -30,11 +30,14 @@ import {
   deployProductionSite,
   DeployAuth,
   ErrorResult,
+  interpretChannelDeployResult,
 } from "./deploy";
 import { getChannelId } from "./getChannelId";
-import { postOrUpdateComment } from "./postOrUpdateComment";
+import {
+  getURLsMarkdownFromChannelDeployResult,
+  postChannelSuccessComment,
+} from "./postOrUpdateComment";
 
-// Inputs defined in action.yml
 const googleApplicationCredentials = getInput("firebaseServiceAccount");
 const firebaseToken = getInput("firebaseToken");
 
@@ -49,8 +52,11 @@ const targets = getInput("targets")
   .map((target) => target.trim());
 
 const token = process.env.GITHUB_TOKEN || getInput("repoToken");
-const github = token ? new GitHub(token) : undefined;
+const octokit = token ? getOctokit(token) : undefined;
 const entryPoint = getInput("entryPoint");
+const firebaseToolsVersion = getInput("firebaseToolsVersion");
+const disableComment = getInput("disableComment");
+const force = getInput("force") === "true";
 
 export interface PRContext {
   prNumber: number;
@@ -94,7 +100,7 @@ async function run() {
 
   let finish = (details: Object) => console.log(details);
   if (token && prContext) {
-    finish = await createCheck(github, context, prContext.commitSHA);
+    finish = await createCheck(octokit, context, prContext.commitSHA);
   }
 
   try {
@@ -141,7 +147,12 @@ async function run() {
 
     if (isProductionDeploy) {
       startGroup("Deploying to production site");
-      const deployment = await deployProductionSite(auth, projectId, targets);
+      const deployment = await deployProductionSite(auth, {
+        projectId,
+        targets,
+        firebaseToolsVersion,
+        force,
+      });
       if (deployment.status === "error") {
         throw Error((deployment as ErrorResult).error);
       }
@@ -159,45 +170,45 @@ async function run() {
       return;
     }
 
-    const channelId = getChannelId(configuredChannelId, prContext);
+    const channelId = getChannelId(configuredChannelId, context, prContext);
 
     startGroup(`Deploying to Firebase preview channel ${channelId}`);
-    const deployment = await deploy({
-      auth,
+    const deployment = await deploy(auth, {
       projectId,
       expires,
       channelId,
       targets,
+      firebaseToolsVersion,
+      force,
     });
-    endGroup();
 
     if (deployment.status === "error") {
       throw Error((deployment as ErrorResult).error);
     }
+    endGroup();
 
-    const allSiteResults = Object.values(deployment.result);
-    const expireTime = allSiteResults[0].expireTime;
-    const urls = allSiteResults.map((siteResult) => siteResult.url);
+    const { expireTime, expire_time_formatted, urls } =
+      interpretChannelDeployResult(deployment);
 
     setOutput("urls", urls);
     setOutput("expire_time", expireTime);
+    setOutput("expire_time_formatted", expire_time_formatted);
     setOutput("details_url", urls[0]);
 
-    const urlsListMarkdown = prepareURLMarkdownList(urls);
-
-    if (token && prContext) {
+    if (disableComment === "true") {
+      console.log(
+        `Commenting on PR is disabled with "disableComment: ${disableComment}"`
+      );
+    } else if (token && prContext && !!octokit) {
       const commitId = prContext.commitSHA.substring(0, 7);
 
-      await postOrUpdateComment(
-        github,
+      await postChannelSuccessComment(
+        octokit,
         context,
         prContext.prNumber,
-        `
-Visit the preview URL for this PR (updated for commit ${commitId}):
-
-${urlsListMarkdown}
-
-<sub>(expires ${new Date(expireTime).toUTCString()})</sub>`.trim()
+        deployment,
+        commitId,
+        commentURLPath
       );
     }
 
@@ -206,7 +217,10 @@ ${urlsListMarkdown}
       conclusion: "success",
       output: {
         title: `Deploy preview succeeded`,
-        summary: urlsListMarkdown,
+        summary: getURLsMarkdownFromChannelDeployResult(
+          deployment,
+          commentURLPath
+        ),
       },
     });
   } catch (e) {
@@ -219,16 +233,6 @@ ${urlsListMarkdown}
         summary: `Error: ${e.message}`,
       },
     });
-  }
-}
-
-function prepareURLMarkdownList(urls: string[]): string {
-  const urlsMarkdown = urls.map((url) => `[${url}](${url}${commentURLPath})`);
-
-  if (urlsMarkdown.length === 1) {
-    return urlsMarkdown[0];
-  } else {
-    return urlsMarkdown.map((item) => `- ${item}`).join("\n");
   }
 }
 
